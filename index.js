@@ -12,7 +12,9 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET)
 // Middleware
 app.use(cors({
     origin: [
-        'http://localhost:5173'
+        'http://localhost:5173',
+        'https://rolls-royce-82f92.web.app',
+        'https://rolls-royce-82f92.firebaseapp.com'
     ],
     credentials: true
 }))
@@ -47,8 +49,8 @@ const verifyToken = (req, res, next) => {
 
 const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production' ? false : true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
 }
 
 const carCollection = client.db('rollsRoyce').collection('cars');
@@ -68,17 +70,17 @@ const transporter = nodemailer.createTransport({
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         app.post('/jwt', async (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.TOKEN_SECRET, { expiresIn: '1h' });
-            res.cookie('token', token).send({ success: true })
+            res.cookie('token', token, cookieOptions).send({ success: true })
         })
         app.post('/logout', async (req, res) => {
             const user = req.body;
             console.log('Logged out user', user);
-            res.clearCookie('token', { ...cookieOptions, maxAge: 0 }).send({ success: false })
+            res.clearCookie('token', { ...cookieOptions, maxAge: 0 }).send({ condition: 'logged out' });
         })
         app.get('/cars', async (req, res) => {
             const result = await carCollection.find().toArray();
@@ -101,6 +103,7 @@ async function run() {
             const result = await carCollection.findOne(query);
             res.send(result);
         })
+        // Orders
         app.post('/orders', async (req, res) => {
             const data = req.body;
             const result = await orderCollection.insertOne(data);
@@ -109,33 +112,33 @@ async function run() {
         app.get('/orders', verifyToken, async (req, res) => {
             const { email, type } = req.query;
             if (req?.decode?.email !== email) {
-                res.status(403).send({ message: 'Forbidden Access' });
+               return res.status(403).send({ message: 'Forbidden Access' });
             }
             const result = await orderCollection.find({ status: 'pending' })
                 .sort(type === 'ascendic' ? { price: -1 } : { price: 1 })
                 .toArray();
             res.send(result);
         })
-        app.get('/orders/:id', verifyToken, async (req, res) => {
+        app.get('/orders/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const result = await orderCollection.findOne(query);
             res.send(result);
         })
-        app.patch('/orders/patch/:id', verifyToken, async(req ,res)=>{
+        app.patch('/orders/patch/:id', verifyToken, async (req, res) => {
             const { email } = req.query;
             if (req?.decode?.email !== email) {
-                res.status(403).send({ message: 'Forbidden Access' });
+                return res.status(403).send({ message: 'Forbidden Access' });
             }
             const id = req.params.id;
             const data = req.body;
-            const filter = {_id: new ObjectId(id)};
+            const filter = { _id: new ObjectId(id) };
             const updatedDoc = {
                 $set: {
                     ...data
                 }
             };
-            const options = {upsert: true};
+            const options = { upsert: true };
             const result = await orderCollection.updateOne(filter, updatedDoc, options);
             res.send(result)
         })
@@ -153,9 +156,9 @@ async function run() {
             res.send(result);
         })
         app.get('/purchase/:email', verifyToken, async (req, res) => {
-            const {email} = req.params;
+            const { email } = req.params;
             if (req?.decode?.email !== email) {
-                return res.status(403).send({message: 'Forbidden Access'});
+                return res.status(403).send({ message: 'Forbidden Access' });
             }
             const result = await purchaseCollection.find({ email }).toArray();
             res.send(result);
@@ -163,7 +166,7 @@ async function run() {
         app.get('/purchase/stat/:email', verifyToken, async (req, res) => {
             const { email } = req.params;
             if (req.decode?.email !== email) {
-                res.status(403).send({ message: 'Forbidden Access' });
+                return res.status(403).send({ message: 'Forbidden Access' });
             }
             const items = await purchaseCollection.find({ email }).toArray();
             const total = items.reduce((sum, item) => sum + parseInt(item.price.slice(1)), 0)
@@ -172,7 +175,7 @@ async function run() {
 
         // Payment
         app.post('/create-payment-intent', async (req, res) => {
-            const {price} = req.body;
+            const { price } = req.body;
             const amount = parseInt(price * 100);
             const payment = await stripe.paymentIntents.create({
                 amount: amount,
@@ -183,16 +186,16 @@ async function run() {
                 clientSecret: payment.client_secret
             })
         })
-        app.post('/payments/:email', verifyToken, async(req, res)=>{
-            const {email} = req.params;
+        app.post('/payments/:email', verifyToken, async (req, res) => {
+            const { email } = req.params;
             if (req?.decode?.email !== email) {
-                return res.status(403).send({message: 'Forbidden Access'});
+                return res.status(403).send({ message: 'Forbidden Access' });
             }
             const data = req.body;
             const result = await paymentCollection.insertOne(data);
             const query = {
                 _id: {
-                    $in: data.cart_id.map(id=> new ObjectId(id))
+                    $in: data.cart_id.map(id => new ObjectId(id))
                 }
             };
             const deleteAll = await purchaseCollection.deleteMany(query);
@@ -202,11 +205,11 @@ async function run() {
                 subject: 'Thnks for your purchase.',
                 html: `
                   <h3>Your payments is successfully done.</h3>
-                  <p>Thanks for your purchase. This is a comfirmation that your payment is been done successfully. You paid ${parseInt(data?.amount /100)} dollars for your dream car. Congratulations! Your car will be there very soon.</p>
+                  <p>Thanks for your purchase. This is a comfirmation that your payment is been done successfully. You paid ${parseInt(data?.amount / 100)} dollars for your dream car. Congratulations! Your car will be there very soon.</p>
                   <h5>FROM: Rolls royce motor cars family</h5>
                 `
             }
-            transporter.sendMail(mailOptions, (error, info)=>{
+            transporter.sendMail(mailOptions, (error, info) => {
                 if (error) {
                     return console.log(error);
                 }
@@ -214,21 +217,21 @@ async function run() {
                     console.log(info.response);
                 }
             })
-            res.send({result, deleteAll})
+            res.send({ result, deleteAll })
         })
-        app.get('/payments/:email', verifyToken, async(req, res)=>{
-            const {email} = req.params;
+        app.get('/payments/:email', verifyToken, async (req, res) => {
+            const { email } = req.params;
             console.log(email);
-            
+
             if (req?.decode?.email !== email) {
-                return res.status(403).send({message: 'Forbidden Access'})
+                return res.status(403).send({ message: 'Forbidden Access' })
             }
-            const result = await paymentCollection.find({email}).toArray();
+            const result = await paymentCollection.find({ email }).toArray();
             res.send(result);
         })
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
+        // await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
